@@ -8,31 +8,27 @@ import io
 import logging
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
-from dataclasses import dataclass
 
 import numpy as np
 import torch
-from fairseq.data import (
-    ConcatDataset,
-    Dictionary,
-    FairseqDataset,
-    ResamplingDataset,
-    data_utils as fairseq_data_utils,
-)
+import torch.nn.functional as F
+
+from fairseq.data import ConcatDataset, Dictionary, FairseqDataset, ResamplingDataset
+from fairseq.data import data_utils as fairseq_data_utils
 from fairseq.data.audio.audio_utils import (
+    FEATURE_OR_SF_AUDIO_FILE_EXTENSIONS,
     get_fbank,
     get_waveform,
-    read_from_stored_zip,
     is_npy_data,
     is_sf_audio_data,
     parse_path,
-    FEATURE_OR_SF_AUDIO_FILE_EXTENSIONS,
+    read_from_stored_zip,
 )
-from fairseq.data.audio.feature_transforms import CompositeAudioFeatureTransform
 from fairseq.data.audio.data_cfg import S2TDataConfig
-
+from fairseq.data.audio.feature_transforms import CompositeAudioFeatureTransform
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +148,7 @@ class SpeechToTextDataset(FairseqDataset):
         bpe_tokenizer=None,
         n_frames_per_step=1,
         speaker_to_id=None,
+        append_eos=True,
     ):
         self.split, self.is_train_split = split, is_train_split
         self.cfg = cfg
@@ -185,6 +182,7 @@ class SpeechToTextDataset(FairseqDataset):
         self.speaker_to_id = speaker_to_id
 
         self.tgt_lens = self.get_tgt_lens_and_check_oov()
+        self.append_eos = append_eos
 
         logger.info(self.__repr__())
 
@@ -250,29 +248,45 @@ class SpeechToTextDataset(FairseqDataset):
         assert lang_tag_idx != dictionary.unk()
         return lang_tag_idx
 
-    def __getitem__(self, index: int) -> SpeechToTextDatasetItem:
+    def _get_source_audio(self, index: int) -> torch.Tensor:
         source = get_features_or_waveform(
             self.audio_paths[index],
             need_waveform=self.cfg.use_audio_input,
             use_sample_rate=self.cfg.use_sample_rate,
         )
-        if self.feature_transforms is not None:
-            assert not self.cfg.use_audio_input
-            source = self.feature_transforms(source)
-        source = torch.from_numpy(source).float()
+        if self.cfg.use_audio_input:
+            source = torch.from_numpy(source).float()
+            if self.cfg.standardize_audio:
+                with torch.no_grad():
+                    source = F.layer_norm(source, source.shape)
+        else:
+            if self.feature_transforms is not None:
+                source = self.feature_transforms(source)
+            source = torch.from_numpy(source).float()
+        return source
+
+    def __getitem__(self, index: int) -> SpeechToTextDatasetItem:
+        source = self._get_source_audio(index)
         source = self.pack_frames(source)
 
         target = None
         if self.tgt_texts is not None:
             tokenized = self.get_tokenized_tgt_text(index)
             target = self.tgt_dict.encode_line(
-                tokenized, add_if_not_exist=False, append_eos=True
+                tokenized, add_if_not_exist=False, append_eos=self.append_eos
             ).long()
             if self.cfg.prepend_tgt_lang_tag:
                 lang_tag_idx = self.get_lang_tag_idx(
                     self.tgt_langs[index], self.tgt_dict
                 )
                 target = torch.cat((torch.LongTensor([lang_tag_idx]), target), 0)
+
+        if self.cfg.prepend_bos_and_append_tgt_lang_tag:
+            bos = torch.LongTensor([self.tgt_dict.bos()])
+            lang_tag_idx = self.get_lang_tag_idx(self.tgt_langs[index], self.tgt_dict)
+            assert lang_tag_idx != self.tgt_dict.unk()
+            lang_tag_idx = torch.LongTensor([lang_tag_idx])
+            target = torch.cat((bos, target, lang_tag_idx), 0)
 
         speaker_id = None
         if self.speaker_to_id is not None:
@@ -315,7 +329,7 @@ class SpeechToTextDataset(FairseqDataset):
             prev_output_tokens = fairseq_data_utils.collate_tokens(
                 [x.target for x in samples],
                 self.tgt_dict.pad(),
-                self.tgt_dict.eos(),
+                eos_idx=None,
                 left_pad=False,
                 move_eos_to_beginning=True,
             )
@@ -443,7 +457,7 @@ class SpeechToTextDatasetCreator(object):
 
         sz_sum = sum(v for v in lp_to_sz.values())
         lp_to_prob = {k: v / sz_sum for k, v in lp_to_sz.items()}
-        lp_to_tgt_prob = {k: v ** alpha for k, v in lp_to_prob.items()}
+        lp_to_tgt_prob = {k: v**alpha for k, v in lp_to_prob.items()}
         prob_sum = sum(v for v in lp_to_tgt_prob.values())
         lp_to_tgt_prob = {k: v / prob_sum for k, v in lp_to_tgt_prob.items()}
         lp_to_sz_ratio = {

@@ -3,11 +3,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 import sys
 from dataclasses import _MISSING_TYPE, dataclass, field
 from typing import Any, List, Optional
 
 import torch
+from omegaconf import II, MISSING
 
 from fairseq.dataclass.constants import (
     DATASET_IMPL_CHOICES,
@@ -20,8 +22,6 @@ from fairseq.dataclass.constants import (
     PRINT_ALIGNMENT_CHOICES,
     ZERO_SHARDING_CHOICES,
 )
-
-from omegaconf import II, MISSING
 
 
 @dataclass
@@ -114,6 +114,17 @@ class CommonConfig(FairseqDataclass):
     log_file: Optional[str] = field(
         default=None, metadata={"help": "log file to copy metrics to."}
     )
+    aim_repo: Optional[str] = field(
+        default=None,
+        metadata={"help": "path to Aim repository"},
+    )
+    aim_run_hash: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Aim run hash. If skipped, creates or continues run "
+            "based on save_dir"
+        },
+    )
     tensorboard_logdir: Optional[str] = field(
         default=None,
         metadata={
@@ -152,7 +163,7 @@ class CommonConfig(FairseqDataclass):
         default=False, metadata={"help": "don't flatten FP16 grads tensor"}
     )
     fp16_init_scale: int = field(
-        default=2 ** 7, metadata={"help": "default FP16 loss scale"}
+        default=2**7, metadata={"help": "default FP16 loss scale"}
     )
     fp16_scale_window: Optional[int] = field(
         default=None,
@@ -188,7 +199,7 @@ class CommonConfig(FairseqDataclass):
         },
     )
     amp_init_scale: int = field(
-        default=2 ** 7, metadata={"help": "default AMP loss scale"}
+        default=2**7, metadata={"help": "default AMP loss scale"}
     )
     amp_scale_window: Optional[int] = field(
         default=None,
@@ -275,9 +286,9 @@ class DistributedTrainingConfig(FairseqDataclass):
         },
     )
     device_id: int = field(
-        default=0,
+        default=os.getenv("LOCAL_RANK", 0),
         metadata={
-            "help": "which GPU to use (usually configured automatically)",
+            "help": "which GPU to use (by default looks for $LOCAL_RANK, usually configured automatically)",
             "argparse_alias": "--local_rank",
         },
     )
@@ -639,6 +650,12 @@ class CheckpointConfig(FairseqDataclass):
             "(default: <save-dir>/checkpoint_last.pt"
         },
     )
+    continue_once: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "continues from this checkpoint, unless a checkpoint indicated in 'restore_file' option is present"
+        },
+    )
     finetune_from_model: Optional[str] = field(
         default=None,
         metadata={
@@ -979,6 +996,10 @@ class GenerationConfig(FairseqDataclass):
     no_seed_provided: bool = field(
         default=False,
         metadata={"help": "if set, dont use seed for initializing random generators"},
+    )
+    eos_token: Optional[str] = field(
+        default=None,
+        metadata={"help": "EOS token"},
     )
 
 

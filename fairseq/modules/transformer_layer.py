@@ -32,9 +32,10 @@ class TransformerEncoderLayerBase(nn.Module):
         args (argparse.Namespace): parsed command-line arguments
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, return_fc=False):
         super().__init__()
         self.cfg = cfg
+        self.return_fc = return_fc
         self.embed_dim = cfg.encoder.embed_dim
         self.quant_noise = cfg.quant_noise.pq
         self.quant_noise_block_size = cfg.quant_noise.pq_block_size
@@ -77,6 +78,61 @@ class TransformerEncoderLayerBase(nn.Module):
             nn.Linear(input_dim, output_dim), p=q_noise, block_size=qn_block_size
         )
 
+    def _get_fc_rank(self, remove_num: int) -> List[int]:
+        f1_filter_param = []
+        for i in range(self.fc1.out_features):
+            f1_filter_param.append(
+                torch.sum(torch.abs(self.fc1.weight[i]))
+                + torch.sum(torch.abs(self.fc2.weight[:, i]))
+                + torch.abs(self.fc1.bias[i])
+            )
+        return sorted(
+            range(len(f1_filter_param)), key=lambda k: f1_filter_param[k], reverse=False
+        )[0:remove_num]
+
+    def _prune_fc_layer(self, remove_index: List[int]):
+        new_fc1_weight = []
+        new_fc1_bias = []
+        for i in range(self.fc1.out_features):
+            if i not in remove_index:
+                new_fc1_weight.append(self.fc1.weight[i])
+                new_fc1_bias.append(self.fc1.bias[i])
+
+        new_fc1_weight = torch.stack(new_fc1_weight).detach()
+        new_fc1_weight.requires_grad = True
+
+        new_fc1_bias = torch.stack(new_fc1_bias).detach()
+        new_fc1_bias.requires_grad = True
+
+        self.fc1 = quant_noise(
+            nn.Linear(self.fc1.in_features, self.fc1.out_features - len(remove_index)),
+            p=self.quant_noise,
+            block_size=self.quant_noise_block_size,
+        )
+        self.fc1.weight = torch.nn.Parameter(new_fc1_weight)
+        self.fc1.bias = torch.nn.Parameter(new_fc1_bias)
+
+        new_fc2_weight = []
+        new_fc2_bias = []
+        for i in range(self.fc2.in_features):
+            if i not in remove_index:
+                new_fc2_weight.append(self.fc2.weight[:, i])
+        new_fc2_bias = self.fc2.bias.detach()
+
+        new_fc2_weight = torch.stack(new_fc2_weight, dim=-1).detach()
+        new_fc2_weight.requires_grad = True
+
+        new_fc2_bias = self.fc2.bias.detach()
+        new_fc2_bias.requires_grad = True
+
+        self.fc2 = quant_noise(
+            nn.Linear(self.fc2.in_features - len(remove_index), self.fc2.out_features),
+            p=self.quant_noise,
+            block_size=self.quant_noise_block_size,
+        )
+        self.fc2.weight = torch.nn.Parameter(new_fc2_weight)
+        self.fc2.bias = torch.nn.Parameter(new_fc2_bias)
+
     def build_self_attention(self, embed_dim, cfg):
         return MultiheadAttention(
             embed_dim,
@@ -85,6 +141,7 @@ class TransformerEncoderLayerBase(nn.Module):
             self_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            xformers_att_config=cfg.encoder.xformers_att_config,
         )
 
     def residual_connection(self, x, residual):
@@ -157,10 +214,16 @@ class TransformerEncoderLayerBase(nn.Module):
         x = self.activation_fn(self.fc1(x))
         x = self.activation_dropout_module(x)
         x = self.fc2(x)
+
+        fc_result = x
+
         x = self.dropout_module(x)
         x = self.residual_connection(x, residual)
         if not self.normalize_before:
             x = self.final_layer_norm(x)
+
+        if self.return_fc and not torch.jit.is_scripting():
+            return x, fc_result
         return x
 
 
@@ -297,6 +360,7 @@ class TransformerDecoderLayerBase(nn.Module):
             self_attention=not cfg.cross_self_attention,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            xformers_att_config=cfg.decoder.xformers_att_config,
         )
 
     def build_encoder_attention(self, embed_dim, cfg):
@@ -309,6 +373,7 @@ class TransformerDecoderLayerBase(nn.Module):
             encoder_decoder_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            xformers_att_config=cfg.encoder.xformers_att_config,
         )
 
     def prepare_for_onnx_export_(self):

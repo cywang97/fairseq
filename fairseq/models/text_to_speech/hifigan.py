@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import Conv1d, ConvTranspose1d
-from torch.nn.utils import weight_norm, remove_weight_norm
+from torch.nn.utils import remove_weight_norm, weight_norm
 
 LRELU_SLOPE = 0.1
 
@@ -114,7 +114,13 @@ class Generator(torch.nn.Module):
         self.num_kernels = len(cfg["resblock_kernel_sizes"])
         self.num_upsamples = len(cfg["upsample_rates"])
         self.conv_pre = weight_norm(
-            Conv1d(80, cfg["upsample_initial_channel"], 7, 1, padding=3)
+            Conv1d(
+                cfg.get("model_in_dim", 80),
+                cfg["upsample_initial_channel"],
+                7,
+                1,
+                padding=3,
+            )
         )
 
         self.ups = nn.ModuleList()
@@ -124,7 +130,7 @@ class Generator(torch.nn.Module):
             self.ups.append(
                 weight_norm(
                     ConvTranspose1d(
-                        cfg["upsample_initial_channel"] // (2 ** i),
+                        cfg["upsample_initial_channel"] // (2**i),
                         cfg["upsample_initial_channel"] // (2 ** (i + 1)),
                         k,
                         u,

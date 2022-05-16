@@ -9,6 +9,7 @@ Train a network across multiple GPUs.
 
 import contextlib
 import logging
+import os
 import sys
 import time
 from argparse import Namespace
@@ -16,6 +17,8 @@ from itertools import chain
 from typing import Any, Dict, List
 
 import torch
+from omegaconf import OmegaConf
+
 from fairseq import checkpoint_utils, models, optim, utils
 from fairseq.dataclass.configs import FairseqConfig
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
@@ -25,7 +28,7 @@ from fairseq.logging import meters, metrics
 from fairseq.models.ema import build_ema
 from fairseq.nan_detector import NanDetector
 from fairseq.optim import lr_scheduler
-from omegaconf import OmegaConf
+from fairseq.utils import safe_hasattr
 
 logger = logging.getLogger(__name__)
 
@@ -428,7 +431,8 @@ class Trainer(object):
 
     def save_checkpoint(self, filename, extra_state):
         """Save all training state in a checkpoint file."""
-        logger.info(f"Saving checkpoint to {filename}")
+
+        logger.info(f"Saving checkpoint to {os.path.abspath(filename)}")
         # call state_dict on all ranks in case it needs internal communication
         state_dict = utils.move_to_cpu(self.state_dict())
         state_dict["extra_state"].update(extra_state)
@@ -438,7 +442,7 @@ class Trainer(object):
                 filename,
                 async_write=self.cfg.checkpoint.write_checkpoints_asynchronously,
             )
-        logger.info(f"Finished saving checkpoint to {filename}")
+        logger.info(f"Finished saving checkpoint to {os.path.abspath(filename)}")
 
     def load_checkpoint(
         self,
@@ -501,6 +505,65 @@ class Trainer(object):
 
             # load model parameters
             try:
+                if (
+                    "optimizer_history" in state
+                    and len(state["optimizer_history"]) > 0
+                    and "num_updates" in state["optimizer_history"][-1]
+                ):
+                    self.model.set_num_updates(
+                        state["optimizer_history"][-1]["num_updates"]
+                    )
+
+                # this is the code related to AdaPrune
+                # In short, it removes redundant heads in multi-head attention module based on heads importance provided
+                # For more info, please refer to the paper: https://openreview.net/forum?id=_CMSV7FTzGI
+                # The idea of prune in mha can be summarized as
+                # Fine tune model (e.g. roberta encoder) on a certain datasets with regularization
+                # After the model is trained. User could use get_reserve_head_index and _adaptive_prune_heads functions to get the top X heads with most importance.
+                # Then user uses the rank to prune a new roberta encoder and save the pruned ckpt manually.
+                # User will fine tune the the new roberta encoder via the ckpt saved above
+                # To get rid of registering different pruned version of Roberta, I use the argument --mha-heads-to-keep to prune the Roberta model into a pruned version which matches the pruned ckpt.
+                if (
+                    safe_hasattr(self.model, "args")
+                    and safe_hasattr(self.model.args, "mha_heads_to_keep")
+                    and self.model.args.mha_heads_to_keep != -1
+                ):
+                    logger.info(
+                        f"Prune model: keep {self.model.args.mha_heads_to_keep} heads for each multihead attention module"
+                    )
+                    for layer in self.model.encoder.sentence_encoder.layers:
+                        reserve_head_index = layer.self_attn._get_reserve_head_index(
+                            num_heads_to_keep=self.model.args.mha_heads_to_keep
+                        )
+                        layer.self_attn._adaptive_prune_heads(
+                            reserve_head_index=reserve_head_index
+                        )
+                        layer.self_attn._set_skip_embed_dim_check()
+                    logger.info(self.model)
+                # this is the code related to AdaPrune
+                # In short, it removes redundant units in feedforward layer in each transformer layer based on importance
+                # For more info, please refer to the paper: https://openreview.net/forum?id=_CMSV7FTzGI
+                # The idea of prune in ffn can be summarized as
+                # Fine tune model (e.g. roberta encoder) on a certain datasets with regularization
+                # After the model is trained. User could use _get_fc_rank and _prune_fc_layer functions to get the top X units with most importance.
+                # Then user uses the rank to prune a new roberta encoder and save the pruned ckpt manually.
+                # User will fine tune the the new roberta encoder via the ckpt saved above
+                # To get rid of registering different pruned version of Roberta, I use the argument --ffn-blocks-to-remove to prune the Roberta model into a pruned version which matches the pruned ckpt.
+                if (
+                    safe_hasattr(self.model, "args")
+                    and safe_hasattr(self.model.args, "ffn_blocks_to_remove")
+                    and self.model.args.ffn_blocks_to_remove != -1
+                ):
+                    logger.info(
+                        f"Prune model: remove {self.model.args.ffn_blocks_to_remove} ffn blocks for each transformer layer"
+                    )
+                    for layer in self.model.encoder.sentence_encoder.layers:
+                        remove_index = layer._get_fc_rank(
+                            remove_num=self.model.args.ffn_blocks_to_remove
+                        )
+                        layer._prune_fc_layer(remove_index=remove_index)
+                    logger.info(self.model)
+
                 self.model.load_state_dict(
                     state["model"], strict=True, model_cfg=self.cfg.model
                 )
@@ -791,6 +854,12 @@ class Trainer(object):
                         return None
                 else:
                     raise e
+            except Exception:
+                self.consolidate_optimizer()
+                self.save_checkpoint(
+                    os.path.join(self.cfg.checkpoint.save_dir, "crash.pt"), {}
+                )
+                raise
 
             if self.tpu and i < len(samples) - 1:
                 # tpu-comment: every XLA operation before marking step is
@@ -892,6 +961,12 @@ class Trainer(object):
                         )  # recursion to feed in same batch
 
         except FloatingPointError:
+
+            self.consolidate_optimizer()
+            self.save_checkpoint(
+                os.path.join(self.cfg.checkpoint.save_dir, "crash.pt"), {}
+            )
+
             # re-run the forward and backward pass with hooks attached to print
             # out where it fails
             self.zero_grad()
@@ -1179,7 +1254,7 @@ class Trainer(object):
             total_norm = distributed_utils.all_reduce(
                 total_norm, group=self.data_parallel_process_group
             )
-            return total_norm ** 0.5
+            return total_norm**0.5
 
         should_agg_norm = self.is_fsdp and (
             self.data_parallel_process_group is not None

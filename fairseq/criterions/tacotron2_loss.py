@@ -6,19 +6,18 @@
 # can be found in the PATENTS file in the same directory.
 
 import logging
-from typing import Any, Dict, List
-from functools import lru_cache
 from dataclasses import dataclass, field
+from functools import lru_cache
+from typing import Any, Dict, List
 
 import torch
+import torch.nn.functional as F
 from omegaconf import II
 
 from fairseq import metrics, utils
 from fairseq.criterions import FairseqCriterion, register_criterion
-from fairseq.dataclass import FairseqDataclass
 from fairseq.data.data_utils import lengths_to_mask
-import torch.nn.functional as F
-
+from fairseq.dataclass import FairseqDataclass
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +27,6 @@ class Tacotron2CriterionConfig(FairseqDataclass):
     bce_pos_weight: float = field(
         default=1.0,
         metadata={"help": "weight of positive examples for BCE loss"},
-    )
-    n_frames_per_step: int = field(
-        default=0,
-        metadata={"help": "Number of frames per decoding step"},
     )
     use_guided_attention_loss: bool = field(
         default=False,
@@ -62,7 +57,7 @@ class GuidedAttentionLoss(torch.nn.Module):
         grid_x = grid_x.to(s_len.device)
         grid_y = grid_y.to(s_len.device)
         w = (grid_y.float() / s_len - grid_x.float() / t_len) ** 2
-        return 1.0 - torch.exp(-w / (2 * (sigma ** 2)))
+        return 1.0 - torch.exp(-w / (2 * (sigma**2)))
 
     def _get_weights(self, src_lens, tgt_lens):
         bsz, max_s_len, max_t_len = len(src_lens), max(src_lens), max(tgt_lens)
@@ -91,7 +86,6 @@ class Tacotron2Criterion(FairseqCriterion):
         self,
         task,
         sentence_avg,
-        n_frames_per_step,
         use_guided_attention_loss,
         guided_attention_loss_sigma,
         bce_pos_weight,
@@ -99,7 +93,6 @@ class Tacotron2Criterion(FairseqCriterion):
     ):
         super().__init__(task)
         self.sentence_avg = sentence_avg
-        self.n_frames_per_step = n_frames_per_step
         self.bce_pos_weight = bce_pos_weight
 
         self.guided_attn = None
