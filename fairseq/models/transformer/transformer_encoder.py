@@ -65,6 +65,8 @@ class TransformerEncoderBase(FairseqEncoder):
 
         self.embed_scale = 1.0 if cfg.no_scale_embedding else math.sqrt(embed_dim)
 
+        self.segment_embeddings = nn.Embedding(5, embed_dim, padding_idx=None)
+
         self.embed_positions = (
             PositionalEmbedding(
                 cfg.max_source_positions,
@@ -75,10 +77,12 @@ class TransformerEncoderBase(FairseqEncoder):
             if not cfg.no_token_positional_embeddings
             else None
         )
+
+
         if cfg.layernorm_embedding:
-            self.layernorm_embedding = LayerNorm(embed_dim, export=cfg.export)
+            self.emb_layer_norm = LayerNorm(embed_dim, export=cfg.export)
         else:
-            self.layernorm_embedding = None
+            self.emb_layer_norm = None
 
         if not cfg.adaptive_input and cfg.quant_noise.pq > 0:
             self.quant_noise = apply_quant_noise_(
@@ -118,7 +122,7 @@ class TransformerEncoderBase(FairseqEncoder):
         return layer
 
     def forward_embedding(
-        self, src_tokens, token_embedding: Optional[torch.Tensor] = None
+        self, src_tokens, segment_labels, token_embedding: Optional[torch.Tensor] = None
     ):
         # embed tokens and positions
         if token_embedding is None:
@@ -126,8 +130,12 @@ class TransformerEncoderBase(FairseqEncoder):
         x = embed = self.embed_scale * token_embedding
         if self.embed_positions is not None:
             x = embed + self.embed_positions(src_tokens)
-        if self.layernorm_embedding is not None:
-            x = self.layernorm_embedding(x)
+
+        if segment_labels is not None:
+            x = x + self.segment_embeddings(segment_labels)
+
+        if self.emb_layer_norm is not None:
+            x = self.emb_layer_norm(x)
         x = self.dropout_module(x)
         if self.quant_noise is not None:
             x = self.quant_noise(x)
@@ -136,6 +144,7 @@ class TransformerEncoderBase(FairseqEncoder):
     def forward(
         self,
         src_tokens,
+        segment_labels: torch.Tensor = None,
         src_lengths: Optional[torch.Tensor] = None,
         return_all_hiddens: bool = False,
         token_embeddings: Optional[torch.Tensor] = None,
@@ -164,7 +173,7 @@ class TransformerEncoderBase(FairseqEncoder):
                   Only populated if *return_all_hiddens* is True.
         """
         return self.forward_scriptable(
-            src_tokens, src_lengths, return_all_hiddens, token_embeddings
+            src_tokens, segment_labels, src_lengths, return_all_hiddens, token_embeddings
         )
 
     # TorchScript doesn't support super() method so that the scriptable Subclass
@@ -174,6 +183,7 @@ class TransformerEncoderBase(FairseqEncoder):
     def forward_scriptable(
         self,
         src_tokens,
+        segment_labels: torch.Tensor = None,
         src_lengths: Optional[torch.Tensor] = None,
         return_all_hiddens: bool = False,
         token_embeddings: Optional[torch.Tensor] = None,
@@ -205,7 +215,7 @@ class TransformerEncoderBase(FairseqEncoder):
         encoder_padding_mask = src_tokens.eq(self.padding_idx)
         has_pads = src_tokens.device.type == "xla" or encoder_padding_mask.any()
 
-        x, encoder_embedding = self.forward_embedding(src_tokens, token_embeddings)
+        x, encoder_embedding = self.forward_embedding(src_tokens, segment_labels, token_embeddings)
 
         # account for padding while computing the representation
         if has_pads:

@@ -75,12 +75,17 @@ def collate(
     else:
         ntokens = sum(len(s["source"]) for s in samples)
 
+    segment_id = samples[0]["segment_id"]
+
+    segment_src = torch.LongTensor(src_tokens.new_ones(src_tokens.shape) * segment_id)
+
     batch = {
         "id": id,
         "ntokens": ntokens,
         "net_input": {
             "src_tokens": src_tokens,
             "src_lengths": src_lengths,
+            "src_segment": segment_src,
         },
         "target": target,
         "nsentences": samples[0]["source"].size(0),
@@ -88,6 +93,9 @@ def collate(
     }
     if prev_output_tokens is not None:
         batch["net_input"]["prev_output_tokens"] = prev_output_tokens
+        segment_trg = torch.LongTensor(prev_output_tokens.new_ones(prev_output_tokens.shape) * segment_id)
+        batch["net_input"]["trg_segment"] = segment_trg
+
 
     return batch
 
@@ -122,6 +130,7 @@ class DenoisingDataset(FairseqDataset):
         args,
         eos=None,
         item_transform_func=None,
+        segment_id=0,
     ):
         self.dataset = dataset
 
@@ -139,6 +148,7 @@ class DenoisingDataset(FairseqDataset):
         self.permute_sentence_ratio = args.permute_sentences
         self.eos = eos if eos is not None else vocab.eos()
         self.item_transform_func = item_transform_func
+        self.segment_id = segment_id
 
         if args.bpe != "gpt2":
             self.full_stop_index = self.vocab.eos()
@@ -210,6 +220,7 @@ class DenoisingDataset(FairseqDataset):
             "id": index,
             "source": source,
             "target": target,
+            "segment_id": self.segment_id
         }
 
     def __len__(self):
@@ -224,7 +235,7 @@ class DenoisingDataset(FairseqDataset):
         sentence_ends = (full_stops[1:] * ~full_stops[:-1]).nonzero(as_tuple=False) + 2
         result = source.clone()
 
-        num_sentences = sentence_ends.size(0)
+        num_sentences = sentence_ends.size(0 )
         num_to_permute = math.ceil((num_sentences * 2 * p) / 2.0)
         substitutions = torch.randperm(num_sentences)[:num_to_permute]
         ordering = torch.arange(0, num_sentences)

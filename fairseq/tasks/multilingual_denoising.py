@@ -5,6 +5,7 @@
 
 import logging
 import os
+import pdb
 
 import numpy as np
 
@@ -19,6 +20,8 @@ from fairseq.data import (
     TokenBlockDataset,
     data_utils,
 )
+from fairseq.data.legacy.masked_lm_dictionary import MaskedLMDictionary
+
 from fairseq.data.encoders.utils import get_whole_word_mask
 from fairseq.tasks import register_task
 
@@ -55,6 +58,7 @@ class MultilingualDenoisingTask(DenoisingTask):
         """Setup the task."""
         paths = args.data.split(":")
         assert len(paths) > 0
+        """
         dictionary = Dictionary.load(os.path.join(paths[0], "dict.txt"))
 
         data_path = paths[0]
@@ -69,13 +73,18 @@ class MultilingualDenoisingTask(DenoisingTask):
         else:
             languages = args.langs.split(",")
 
+        
+        """
+        if not hasattr(args, "shuffle_instance"):
+            args.shuffle_instance = False
+        dictionary = MaskedLMDictionary.load(os.path.join(args.data, "dict.txt"))
+        languages = args.langs.split(",")
         if args.add_lang_token:
             for lang in languages:
                 dictionary.add_symbol("[{}]".format(lang))
 
         logger.info("dictionary: {} types".format(len(dictionary)))
-        if not hasattr(args, "shuffle_instance"):
-            args.shuffle_instance = False
+
         return cls(args, dictionary)
 
     def __init__(self, args, dictionary):
@@ -86,7 +95,19 @@ class MultilingualDenoisingTask(DenoisingTask):
         # add mask token
         self.mask_idx = self.dictionary.add_symbol("<mask>")
         self.langs = args.langs
+        self.langs2id = self._lang_to_id(self.langs)
         self.args = args
+
+    def _lang_to_id(self, languages: str):
+        """
+        Build a map from languages to ids. These ids are used as segment labels
+        for cross-lingual LM training.
+        """
+        lang2id = {}
+        langs = [l.strip() for l in languages.split(",")]
+        for id, lang in enumerate(langs):
+            lang2id[lang] = id
+        return lang2id
 
     def _get_sample_prob(self, dataset_lens):
         """
@@ -107,21 +128,8 @@ class MultilingualDenoisingTask(DenoisingTask):
         paths = self.args.data.split(":")
         assert len(paths) > 0
         data_path = paths[(epoch - 1) % len(paths)]
-        split_path = os.path.join(data_path, split)
-
-        if self.langs is None:
-            languages = sorted(
-                [
-                    name
-                    for name in os.listdir(data_path)
-                    if os.path.isdir(os.path.join(data_path, name))
-                ]
-            )
-        else:
-            languages = self.langs.split(",")
-            for name in languages:
-                p = os.path.join(data_path, name)
-                assert os.path.exists(p), "data not found: {}".format(p)
+        
+        languages = self.langs.split(",")
 
         logger.info("Training on {0} languages: {1}".format(len(languages), languages))
         logger.info(
@@ -132,10 +140,11 @@ class MultilingualDenoisingTask(DenoisingTask):
         language_without_segmentations = self.args.no_whole_word_mask_langs.split(",")
         lang_datasets = []
         for language in languages:
-            split_path = os.path.join(data_path, language, split)
+            language_split = "{}.{}".format(split, language)
+            path = os.path.join(self.args.data, language_split)
 
             dataset = data_utils.load_indexed_dataset(
-                split_path,
+                path,
                 self.source_dictionary,
                 self.args.dataset_impl,
                 combine=combine,
@@ -160,11 +169,11 @@ class MultilingualDenoisingTask(DenoisingTask):
                 eos=end_token,
                 break_mode=self.args.sample_break_mode,
             )
-            logger.info("loaded {} blocks from: {}".format(len(dataset), split_path))
+            logger.info("loaded {} blocks from: {}".format(len(dataset), language_split))
 
             # prepend beginning-of-sentence token (<s>, equiv. to [CLS] in BERT)
             dataset = PrependTokenDataset(dataset, self.source_dictionary.bos())
-            dataset = AppendTokenDataset(dataset, end_token)
+            #dataset = AppendTokenDataset(dataset, end_token)
 
             lang_mask_whole_words = (
                 mask_whole_words
@@ -183,6 +192,7 @@ class MultilingualDenoisingTask(DenoisingTask):
                 eos=None
                 if not self.args.add_lang_token
                 else self.source_dictionary.index("[{}]".format(language)),
+                segment_id=self.langs2id[language]
             )
             lang_datasets.append(lang_dataset)
 

@@ -46,6 +46,16 @@ class BARTModel(TransformerModel):
         if hasattr(self.encoder, "dictionary"):
             self.eos: int = self.encoder.dictionary.eos()
 
+        state = torch.load('/home/yuwu1/checkpoints/mlm/checkpoint_best.pt')
+        model_state = state['model']
+        new_state = {}
+        for key, value in model_state.items():
+            new_key = key.replace('encoder.sentence_encoder.', '')
+            new_state[new_key] = model_state[key]
+
+        #self.encoder.load_state_dict(new_state, strict=False)
+        #self.decoder.load_state_dict(new_state, strict=False)
+
     @staticmethod
     def add_args(parser):
         super(BARTModel, BARTModel).add_args(parser)
@@ -75,6 +85,8 @@ class BARTModel(TransformerModel):
         src_tokens,
         src_lengths,
         prev_output_tokens,
+        src_segment=None,
+        trg_segment=None,
         features_only: bool = False,
         classification_head_name: Optional[str] = None,
         token_embeddings: Optional[torch.Tensor] = None,
@@ -88,11 +100,13 @@ class BARTModel(TransformerModel):
         encoder_out = self.encoder(
             src_tokens,
             src_lengths=src_lengths,
+            segment_labels=src_segment,
             token_embeddings=token_embeddings,
             return_all_hiddens=return_all_hiddens,
         )
         x, extra = self.decoder(
             prev_output_tokens,
+            segment_labels=trg_segment,
             encoder_out=encoder_out,
             features_only=features_only,
             alignment_layer=alignment_layer,
@@ -358,7 +372,7 @@ def bart_large_architecture(args):
     args.decoder_input_dim = getattr(args, "decoder_input_dim", args.decoder_embed_dim)
 
     args.no_scale_embedding = getattr(args, "no_scale_embedding", True)
-    args.layernorm_embedding = getattr(args, "layernorm_embedding", True)
+    args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
 
     args.activation_fn = getattr(args, "activation_fn", "gelu")
     args.pooler_activation_fn = getattr(args, "pooler_activation_fn", "tanh")
@@ -367,12 +381,12 @@ def bart_large_architecture(args):
 
 @register_model_architecture("bart", "bart_base")
 def bart_base_architecture(args):
-    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
-    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 4 * 768)
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 1024)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 4 * 1024)
     args.encoder_layers = getattr(args, "encoder_layers", 6)
-    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 12)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 8)
     args.decoder_layers = getattr(args, "decoder_layers", 6)
-    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 12)
+    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 8)
     bart_large_architecture(args)
 
 

@@ -33,15 +33,18 @@ class CrossEntropyCriterion(FairseqCriterion):
         3) logging outputs to display while training
         """
         net_output = model(**sample["net_input"])
-        loss, _ = self.compute_loss(model, net_output, sample, reduce=reduce)
+        loss, corr = self.compute_loss(model, net_output, sample, reduce=reduce)
         sample_size = (
             sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
         )
+        id = sample['net_input']['trg_segment'][0][0].item()
         logging_output = {
             "loss": loss.data,
             "ntokens": sample["ntokens"],
             "nsentences": sample["target"].size(0),
             "sample_size": sample_size,
+            "corr_{}".format(id): corr,
+            "count_{}".format(id): sample_size,
         }
         return loss, sample_size, logging_output
 
@@ -55,7 +58,9 @@ class CrossEntropyCriterion(FairseqCriterion):
             ignore_index=self.padding_idx,
             reduction="sum" if reduce else "none",
         )
-        return loss, loss
+        pred = lprobs.argmax(dim=-1)
+        corr = (pred == target).sum().item()
+        return loss, corr
 
     @staticmethod
     def reduce_metrics(logging_outputs) -> None:
@@ -79,6 +84,12 @@ class CrossEntropyCriterion(FairseqCriterion):
             metrics.log_derived(
                 "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
             )
+
+        for lk in logging_outputs[0].keys():
+            if lk.startswith("corr"):
+                val = sum(log[lk] for log in logging_outputs)
+                counts = sum(log[lk.replace('corr', 'count')] for log in logging_outputs)
+                metrics.log_scalar(lk, val / counts)
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

@@ -57,6 +57,16 @@ class CrossLingualLMTask(LegacyFairseqTask):
             action="store_true",
             help="shuffle each monolingual dataset while" " training",
         )
+        parser.add_argument(
+            "--mask-prob",
+            default="0.15",
+            type=str,
+        )
+        parser.add_argument(
+            "--mask-multiple-length",
+            default="1",
+            type=str
+        )
 
     def __init__(self, args, dictionary):
         super().__init__(args)
@@ -64,6 +74,15 @@ class CrossLingualLMTask(LegacyFairseqTask):
         self.seed = args.seed
         self.distributed_world_size = args.distributed_world_size
         self.langs2id = self._lang_to_id(args.monolingual_langs)
+        mask_prob = args.mask_prob.split(",")
+        if len(mask_prob) == 1:
+            mask_prob = mask_prob * len(self.langs2id)
+        self.mask_prob = list(map(float, mask_prob))
+        mask_multiple_length = args.mask_multiple_length.split(',')
+        if len(mask_multiple_length) == 1:
+            mask_multiple_length = mask_multiple_length * len(self.langs2id)
+        self.mask_multiple_length = list(map(int, mask_multiple_length))
+        
 
     def _lang_to_id(self, languages: str):
         """
@@ -179,6 +198,8 @@ class CrossLingualLMTask(LegacyFairseqTask):
                 has_pairs=False,
                 segment_id=self.langs2id[lang],
                 seed=self.seed,
+                masking_ratio=self.mask_prob[self.langs2id[lang]],
+                mask_multiple_length=self.mask_multiple_length[self.langs2id[lang]]
             )
 
         self.datasets[split] = MultiCorpusSampledDataset(dataset_map)

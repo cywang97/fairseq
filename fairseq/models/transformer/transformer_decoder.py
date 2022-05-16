@@ -80,6 +80,8 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
 
         self.embed_scale = 1.0 if cfg.no_scale_embedding else math.sqrt(embed_dim)
 
+        self.segment_embeddings = nn.Embedding(5, embed_dim, padding_idx=None)
+
         if not cfg.adaptive_input and cfg.quant_noise.pq > 0:
             self.quant_noise = apply_quant_noise_(
                 nn.Linear(embed_dim, embed_dim, bias=False),
@@ -105,9 +107,9 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
             else None
         )
         if cfg.layernorm_embedding:
-            self.layernorm_embedding = LayerNorm(embed_dim, export=cfg.export)
+            self.emb_layer_norm = LayerNorm(embed_dim, export=cfg.export)
         else:
-            self.layernorm_embedding = None
+            self.emb_layer_norm = None
 
         self.cross_self_attention = cfg.cross_self_attention
 
@@ -186,6 +188,7 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
     def forward(
         self,
         prev_output_tokens,
+        segment_labels: torch.Tensor = None,
         encoder_out: Optional[Dict[str, List[Tensor]]] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         features_only: bool = False,
@@ -216,6 +219,7 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
 
         x, extra = self.extract_features(
             prev_output_tokens,
+            segment_labels,
             encoder_out=encoder_out,
             incremental_state=incremental_state,
             full_context_alignment=full_context_alignment,
@@ -230,6 +234,7 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
     def extract_features(
         self,
         prev_output_tokens,
+        segment_labels,
         encoder_out: Optional[Dict[str, List[Tensor]]],
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         full_context_alignment: bool = False,
@@ -238,6 +243,7 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
     ):
         return self.extract_features_scriptable(
             prev_output_tokens,
+            segment_labels,
             encoder_out,
             incremental_state,
             full_context_alignment,
@@ -254,6 +260,7 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
     def extract_features_scriptable(
         self,
         prev_output_tokens,
+        segment_labels,
         encoder_out: Optional[Dict[str, List[Tensor]]],
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         full_context_alignment: bool = False,
@@ -314,8 +321,11 @@ class TransformerDecoderBase(FairseqIncrementalDecoder):
         if positions is not None:
             x += positions
 
-        if self.layernorm_embedding is not None:
-            x = self.layernorm_embedding(x)
+        if segment_labels is not None:
+            x = x + self.segment_embeddings(segment_labels)
+
+        if self.emb_layer_norm is not None:
+            x = self.emb_layer_norm(x)
 
         x = self.dropout_module(x)
 

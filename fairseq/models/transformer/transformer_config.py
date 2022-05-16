@@ -113,16 +113,16 @@ class TransformerConfig(FairseqDataclass):
     adaptive_input: bool = False
     encoder: EncDecBaseConfig = EncDecBaseConfig()
     # TODO should really be in the encoder config
-    max_source_positions: int = field(
-        default=DEFAULT_MAX_SOURCE_POSITIONS,
-        metadata={"help": "Maximum input length supported by the encoder"},
-    )
+    #max_source_positions: int = field(
+    #    default=DEFAULT_MAX_SOURCE_POSITIONS,
+    #    metadata={"help": "Maximum input length supported by the encoder"},
+    #)
     decoder: DecoderConfig = DecoderConfig()
     # TODO should really be in the decoder config
-    max_target_positions: int = field(
-        default=DEFAULT_MAX_TARGET_POSITIONS,
-        metadata={"help": "Maximum output length supported by the decoder"},
-    )
+    #max_target_positions: int = field(
+    #    default=DEFAULT_MAX_TARGET_POSITIONS,
+    #    metadata={"help": "Maximum output length supported by the decoder"},
+    #)
     share_decoder_input_output_embed: bool = field(
         default=False, metadata={"help": "share decoder input and output embeddings"}
     )

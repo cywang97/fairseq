@@ -65,6 +65,7 @@ class MaskedLMDataset(FairseqDataset):
         segment_id: int = 0,
         masking_ratio: float = 0.15,
         masking_prob: float = 0.8,
+        mask_multiple_length: int = 1,
         random_token_prob: float = 0.1,
     ):
         # Make sure the input datasets are the ones supported
@@ -90,6 +91,7 @@ class MaskedLMDataset(FairseqDataset):
         self.segment_id = segment_id
         self.masking_ratio = masking_ratio
         self.masking_prob = masking_prob
+        self.mask_multiple_length = mask_multiple_length
         self.random_token_prob = random_token_prob
 
         # If we have only one block then sizes needs to be updated to include
@@ -146,6 +148,9 @@ class MaskedLMDataset(FairseqDataset):
         sent_length = len(sentence)
         mask_num = math.ceil(sent_length * self.masking_ratio)
         mask = np.random.choice(sent_length, mask_num, replace=False)
+        mask = np.concatenate(
+            [mask + i for i in range(self.mask_multiple_length)]
+        )
         target = np.copy(sentence)
 
         for i in range(sent_length):

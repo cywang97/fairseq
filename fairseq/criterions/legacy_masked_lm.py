@@ -84,6 +84,15 @@ class LegacyMaskedLmLoss(FairseqCriterion):
         lm_targets = sample["lm_target"].view(-1)
         lm_loss = compute_cross_entropy_loss(lm_logits, lm_targets, self.padding_idx)
 
+        def compute_acc(pred, trg):
+            mask = trg != self.padding_idx
+            pred = pred[mask]
+            trg = trg[mask]
+            corr = ((pred.argmax(dim=-1)) == trg).sum()
+            return corr
+
+        corr = compute_acc(lm_logits, lm_targets)
+
         # compute the number of tokens for which loss is computed. This is used
         # to normalize the loss
         ntokens = utils.strip_pad(lm_targets, self.padding_idx).numel()
@@ -130,6 +139,13 @@ class LegacyMaskedLmLoss(FairseqCriterion):
             "nsentences": nsentences,
             "sample_size": sample_size,
         }
+        if "segment_labels" in sample["net_input"]:
+            suffix = str(sample["net_input"]["segment_labels"][0][0].item())
+            logging_output["corr_"+suffix] = corr
+            logging_output["count_"+suffix] = ntokens
+        else:
+            logging_output["corr"] = corr
+            logging_output["count"] = ntokens
         return loss, sample_size, logging_output
 
     @staticmethod
@@ -141,6 +157,7 @@ class LegacyMaskedLmLoss(FairseqCriterion):
         nsentences = sum(log.get("nsentences", 0) for log in logging_outputs)
         sample_size = sum(log.get("sample_size", 0) for log in logging_outputs)
         agg_loss = sum(log.get("loss", 0) for log in logging_outputs)
+        correct = sum(log.get("corr", 0) for log in logging_outputs)
 
         metrics.log_scalar(
             "loss",
@@ -166,6 +183,13 @@ class LegacyMaskedLmLoss(FairseqCriterion):
             ntokens,
             round=3,
         )
+        for lk in logging_outputs[0].keys():
+            if lk.startswith("corr"):
+                val = sum(log[lk] for log in logging_outputs)
+                counts = sum(log[lk.replace('corr', 'count')] for log in logging_outputs)
+                metrics.log_scalar(
+                    lk, val / counts
+                )
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

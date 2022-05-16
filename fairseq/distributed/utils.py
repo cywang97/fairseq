@@ -53,6 +53,25 @@ def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=False):
 
     if all(
         key in os.environ
+        for key in ["OMPI_COMM_WORLD_SIZE", "OMPI_COMM_WORLD_RANK"]
+    ):
+        cfg.distributed_world_size = int(os.environ['OMPI_COMM_WORLD_SIZE'])
+        cfg.distributed_rank = int(os.environ['OMPI_COMM_WORLD_RANK'])
+        cfg.device_id = int(os.environ['OMPI_COMM_WORLD_LOCAL_RANK'])
+        if "MASTER_ADDR" in os.environ:
+            master_addr = os.environ['MASTER_ADDR']
+        else:
+            master_addr = "localhost"
+        if "MASTER_PORT" in os.environ:
+            master_port = os.environ["MASTER_PORT"]
+        else:
+            master_port = 6008
+            
+        cfg.distributed_init_method = "tcp://%s:%s" % (master_addr, master_port)
+        cfg.distributed_no_spawn = True
+
+    elif all(
+        key in os.environ
         for key in ["MASTER_ADDR", "MASTER_PORT", "WORLD_SIZE", "RANK"]
     ):
         # support torch.distributed.launch

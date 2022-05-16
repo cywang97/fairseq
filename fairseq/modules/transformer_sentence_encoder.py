@@ -105,6 +105,8 @@ class TransformerSentenceEncoder(nn.Module):
     ) -> None:
 
         super().__init__()
+        import pdb
+        pdb.set_trace()
         self.padding_idx = padding_idx
         self.vocab_size = vocab_size
         self.dropout_module = FairseqDropout(
