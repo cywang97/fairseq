@@ -167,7 +167,7 @@ class MultilingualDenoisingTask(DenoisingTask):
                 self.args.tokens_per_sample - 2,  # one less for <s>
                 pad=self.source_dictionary.pad(),
                 eos=end_token,
-                break_mode=self.args.sample_break_mode,
+                break_mode=None,
             )
             logger.info("loaded {} blocks from: {}".format(len(dataset), language_split))
 
