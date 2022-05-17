@@ -44,8 +44,6 @@ class MaskedLMModel(FairseqEncoderModel):
         # and projection layers are also correctly initialized
         if getattr(args, "apply_bert_init", False):
             self.apply(init_bert_params)
-        state = torch.load('/home/yuwu1/checkpoints/mlm/checkpoint_best.pt')['model']
-        self.load_state_dict(state)
 
     @staticmethod
     def add_args(parser):
@@ -259,7 +257,6 @@ class MaskedLMEncoder(FairseqEncoder):
                   is the prediction logit for NSP task and is only computed if
                   this is specified in the input arguments.
         """
-        pdb.set_trace()
         inner_states, sentence_rep = self.sentence_encoder(
             src_tokens,
             segment_labels=segment_labels,
