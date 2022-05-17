@@ -46,15 +46,15 @@ class BARTModel(TransformerModel):
         if hasattr(self.encoder, "dictionary"):
             self.eos: int = self.encoder.dictionary.eos()
 
-        state = torch.load('/home/yuwu1/checkpoints/mlm/checkpoint_best.pt')
+        state = torch.load('//modelblob/users/v-chengw/librispeech_model/fairseq/cross_lingual_lm/code_phn_4gpu_400k_lr1e-4/checkpoint_best.pt')
         model_state = state['model']
         new_state = {}
         for key, value in model_state.items():
             new_key = key.replace('encoder.sentence_encoder.', '')
             new_state[new_key] = model_state[key]
 
-        #self.encoder.load_state_dict(new_state, strict=False)
-        #self.decoder.load_state_dict(new_state, strict=False)
+        self.encoder.load_state_dict(new_state, strict=False)
+        self.decoder.load_state_dict(new_state, strict=False)
 
     @staticmethod
     def add_args(parser):

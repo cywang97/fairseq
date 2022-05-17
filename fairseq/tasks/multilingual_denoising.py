@@ -173,7 +173,7 @@ class MultilingualDenoisingTask(DenoisingTask):
 
             # prepend beginning-of-sentence token (<s>, equiv. to [CLS] in BERT)
             dataset = PrependTokenDataset(dataset, self.source_dictionary.bos())
-            #dataset = AppendTokenDataset(dataset, end_token)
+            dataset = AppendTokenDataset(dataset, end_token)
 
             lang_mask_whole_words = (
                 mask_whole_words
