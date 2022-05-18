@@ -93,7 +93,7 @@ def collate(
     }
     if prev_output_tokens is not None:
         batch["net_input"]["prev_output_tokens"] = prev_output_tokens
-        batch["net_input"]["trg_segment"] = segment_src.copy()
+        batch["net_input"]["trg_segment"] = segment_src.clone()
 
 
     return batch
