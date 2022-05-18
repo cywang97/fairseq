@@ -97,6 +97,8 @@ class BARTModel(TransformerModel):
         if classification_head_name is not None:
             features_only = True
 
+        src_segment = src_segment.unsqueeze(-1).expand(-1, src_tokens.shape[1])
+
         encoder_out = self.encoder(
             src_tokens,
             src_lengths=src_lengths,
@@ -104,6 +106,8 @@ class BARTModel(TransformerModel):
             token_embeddings=token_embeddings,
             return_all_hiddens=return_all_hiddens,
         )
+
+        trg_segment = trg_segment.unsqueeze(-1).expand(-1, prev_output_tokens.shape[1])
         x, extra = self.decoder(
             prev_output_tokens,
             segment_labels=trg_segment,
