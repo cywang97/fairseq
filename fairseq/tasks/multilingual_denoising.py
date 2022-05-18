@@ -79,10 +79,7 @@ class MultilingualDenoisingTask(DenoisingTask):
             args.shuffle_instance = False
         dictionary = MaskedLMDictionary.load(os.path.join(args.data, "dict.txt"))
         languages = args.langs.split(",")
-        if args.add_lang_token:
-            for lang in languages:
-                dictionary.add_symbol("[{}]".format(lang))
-
+        
         logger.info("dictionary: {} types".format(len(dictionary)))
 
         return cls(args, dictionary)
@@ -97,6 +94,10 @@ class MultilingualDenoisingTask(DenoisingTask):
         self.langs = args.langs
         self.langs2id = self._lang_to_id(self.langs)
         self.args = args
+        if args.add_lang_token:
+            langs = [l.strip() for l in self.langs.split(",")]
+            self.lang_tokens = {langs[0]: dictionary.index("<s>"), langs[1]: dictionary.index("<unk>")}
+
 
     def _lang_to_id(self, languages: str):
         """
@@ -139,6 +140,7 @@ class MultilingualDenoisingTask(DenoisingTask):
         mask_whole_words = get_whole_word_mask(self.args, self.dictionary)
         language_without_segmentations = self.args.no_whole_word_mask_langs.split(",")
         lang_datasets = []
+
         for language in languages:
             language_split = "{}.{}".format(split, language)
             path = os.path.join(self.args.data, language_split)
@@ -155,7 +157,7 @@ class MultilingualDenoisingTask(DenoisingTask):
                 )
 
             end_token = (
-                self.source_dictionary.index("[{}]".format(language))
+                self.lang_tokens[language]
                 if self.args.add_lang_token
                 else self.source_dictionary.eos()
             )
@@ -166,13 +168,12 @@ class MultilingualDenoisingTask(DenoisingTask):
                 dataset.sizes,
                 self.args.tokens_per_sample - 2,  # one less for <s>
                 pad=self.source_dictionary.pad(),
-                eos=end_token,
-                break_mode=None,
+                eos=self.source_dictionary.eos(),
             )
             logger.info("loaded {} blocks from: {}".format(len(dataset), language_split))
 
             # prepend beginning-of-sentence token (<s>, equiv. to [CLS] in BERT)
-            dataset = PrependTokenDataset(dataset, self.source_dictionary.bos())
+            #dataset = PrependTokenDataset(dataset, self.dictionary.bos())
             dataset = AppendTokenDataset(dataset, end_token)
 
             lang_mask_whole_words = (
@@ -191,7 +192,7 @@ class MultilingualDenoisingTask(DenoisingTask):
                 args=self.args,
                 eos=None
                 if not self.args.add_lang_token
-                else self.source_dictionary.index("[{}]".format(language)),
+                else self.lang_tokens[language],
                 segment_id=self.langs2id[language]
             )
             lang_datasets.append(lang_dataset)

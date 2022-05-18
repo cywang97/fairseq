@@ -7,6 +7,7 @@ import math
 from dataclasses import dataclass
 
 import torch.nn.functional as F
+from collections import defaultdict
 from fairseq import metrics, utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.dataclass import FairseqDataclass
@@ -33,33 +34,42 @@ class CrossEntropyCriterion(FairseqCriterion):
         3) logging outputs to display while training
         """
         net_output = model(**sample["net_input"])
-        loss, corr = self.compute_loss(model, net_output, sample, reduce=reduce)
+        loss, correct = self.compute_loss(model, net_output, sample, reduce=reduce)
         sample_size = (
             sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
         )
-        id = sample['net_input']['trg_segment'][0][0].item()
+        
+        corr = defaultdict(lambda : 0)
+        count = defaultdict(lambda : 0)
+
+        for i in range(len(sample['net_input']['trg_segment'])):
+            corr_key = "corr_{}".format(sample['net_input']['trg_segment'][i].item())
+            count_key = "count_{}".format(sample['net_input']['trg_segment'][i].item())
+            corr[corr_key] += correct[i].item()
+            count[count_key] += (sample["target"] != self.padding_idx).sum().item()
+
         logging_output = {
             "loss": loss.data,
             "ntokens": sample["ntokens"],
             "nsentences": sample["target"].size(0),
             "sample_size": sample_size,
-            "corr_{}".format(id): corr,
-            "count_{}".format(id): sample_size,
+            **corr,
+            **count,
         }
         return loss, sample_size, logging_output
 
     def compute_loss(self, model, net_output, sample, reduce=True):
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = model.get_targets(sample, net_output).view(-1)
+        target = model.get_targets(sample, net_output)
         loss = F.nll_loss(
             lprobs,
-            target,
+            target.view(-1),
             ignore_index=self.padding_idx,
             reduction="sum" if reduce else "none",
         )
-        pred = lprobs.argmax(dim=-1)
-        corr = (pred == target).sum().item()
+        pred = net_output[0].argmax(dim=-1)
+        corr = (pred == target).sum(dim=1)
         return loss, corr
 
     @staticmethod

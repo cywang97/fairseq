@@ -75,9 +75,8 @@ def collate(
     else:
         ntokens = sum(len(s["source"]) for s in samples)
 
-    segment_id = samples[0]["segment_id"]
-
-    segment_src = torch.LongTensor(src_tokens.new_ones(src_tokens.shape) * segment_id)
+    segment_ids = [s["segment_id"] for s in samples]
+    segment_src = torch.LongTensor(segment_ids)
 
     batch = {
         "id": id,
@@ -93,7 +92,7 @@ def collate(
     }
     if prev_output_tokens is not None:
         batch["net_input"]["prev_output_tokens"] = prev_output_tokens
-        segment_trg = torch.LongTensor(prev_output_tokens.new_ones(prev_output_tokens.shape) * segment_id)
+        segment_trg = torch.LongTensor(segment_ids)
         batch["net_input"]["trg_segment"] = segment_trg
 
 
@@ -193,7 +192,7 @@ class DenoisingDataset(FairseqDataset):
     def __getitem__(self, index):
         with data_utils.numpy_seed(self.seed, self.epoch, index):
             tokens = self.dataset[index]
-            assert tokens[-1] == self.eos
+            #assert tokens[-1] == self.eos
             source, target = tokens, tokens.clone()
 
             if self.permute_sentence_ratio > 0.0:
@@ -214,8 +213,8 @@ class DenoisingDataset(FairseqDataset):
         assert (source >= 0).all()
         assert (source[1:-1] >= 1).all()
         assert (source <= len(self.vocab)).all()
-        assert source[0] == self.vocab.bos()
-        assert source[-1] == self.eos
+        #assert source[0] == self.vocab.bos()
+        #assert source[-1] == self.eos
         return {
             "id": index,
             "source": source,
