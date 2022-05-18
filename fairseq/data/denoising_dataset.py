@@ -47,6 +47,10 @@ def collate(
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
 
+    segment_ids = [s["segment_id"] for s in samples]
+    segment_src = torch.LongTensor(segment_ids)
+    segment_src = segment_src.index_select(0, sort_order)
+
     prev_output_tokens = None
     target = None
     if samples[0].get("target", None) is not None:
@@ -75,8 +79,6 @@ def collate(
     else:
         ntokens = sum(len(s["source"]) for s in samples)
 
-    segment_ids = [s["segment_id"] for s in samples]
-    segment_src = torch.LongTensor(segment_ids)
 
     batch = {
         "id": id,
@@ -92,8 +94,7 @@ def collate(
     }
     if prev_output_tokens is not None:
         batch["net_input"]["prev_output_tokens"] = prev_output_tokens
-        segment_trg = torch.LongTensor(segment_ids)
-        batch["net_input"]["trg_segment"] = segment_trg
+        batch["net_input"]["trg_segment"] = segment_src
 
 
     return batch
