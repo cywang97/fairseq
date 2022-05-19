@@ -10,7 +10,7 @@ from collections import OrderedDict
 
 import numpy as np
 from fairseq import tokenizer, utils
-from fairseq.data import ConcatDataset, Dictionary, TokenBlockDataset, data_utils
+from fairseq.data import ConcatDataset, Dictionary, TokenBlockDataset, data_utils, PrependTokenDataset
 from fairseq.data.legacy.masked_lm_dataset import MaskedLMDataset
 from fairseq.data.legacy.masked_lm_dictionary import MaskedLMDictionary
 from fairseq.data.multi_corpus_sampled_dataset import MultiCorpusSampledDataset
@@ -154,6 +154,7 @@ class CrossLingualLMTask(LegacyFairseqTask):
                     self.args.tokens_per_sample - 1,
                     pad=self.dictionary.pad(),
                     eos=self.dictionary.eos(),
+                    break_mode="eos"
                 )
             )
 
@@ -192,7 +193,7 @@ class CrossLingualLMTask(LegacyFairseqTask):
                 vocab=self.dictionary,
                 pad_idx=self.dictionary.pad(),
                 mask_idx=self.dictionary.mask(),
-                classif_token_idx=self.dictionary.eos(),
+                classif_token_idx=self.dictionary.bos(),
                 sep_token_idx=self.dictionary.eos(),
                 shuffle=getattr(self.args, "shuffle", False),
                 has_pairs=False,
@@ -205,7 +206,7 @@ class CrossLingualLMTask(LegacyFairseqTask):
         self.datasets[split] = MultiCorpusSampledDataset(dataset_map)
         logger.info(
             "{} {} {} examples".format(
-                utils.split_paths(self.args.data)[epoch - 1],
+                utils.split_paths(self.args.data)[0],
                 split,
                 len(self.datasets[split]),
             )
