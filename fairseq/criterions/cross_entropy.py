@@ -46,7 +46,7 @@ class CrossEntropyCriterion(FairseqCriterion):
             corr_key = "corr_{}".format(sample['net_input']['trg_segment'][i].item())
             count_key = "count_{}".format(sample['net_input']['trg_segment'][i].item())
             corr[corr_key] += correct[i].item()
-            count[count_key] += (sample["target"] != self.padding_idx).sum().item()
+            count[count_key] += (sample["target"][i] != self.padding_idx).sum().item()
 
         logging_output = {
             "loss": loss.data,
