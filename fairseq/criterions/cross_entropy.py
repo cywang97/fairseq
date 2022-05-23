@@ -99,7 +99,7 @@ class CrossEntropyCriterion(FairseqCriterion):
             if lk.startswith("corr"):
                 val = sum(log[lk] for log in logging_outputs)
                 counts = sum(log[lk.replace('corr', 'count')] for log in logging_outputs)
-                metrics.log_scalar(lk, val / counts)
+                metrics.log_scalar(lk, val / (counts+0.001))
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

@@ -94,6 +94,11 @@ class MaskedLMDataset(FairseqDataset):
         self.mask_multiple_length = mask_multiple_length
         self.random_token_prob = random_token_prob
 
+        f = open('/modelblob/users/v-chengw/data/librispeech/mbart_data/data-bin/mapping.txt')
+        self.mapping = {}
+        for line in f:
+            line = line.strip().split()
+            self.mapping[self.vocab.index(line[0])] = self.vocab.index(line[1])
         # If we have only one block then sizes needs to be updated to include
         # the classification token
         if not has_pairs:
@@ -105,6 +110,10 @@ class MaskedLMDataset(FairseqDataset):
             (block_one, block_two, sentence_target) = self.dataset[index]
         else:
             block_one = self.dataset[index]
+
+        for i in range(len(block_one)-1):
+            if np.random.random() < 0.3:
+                block_one[i] = self.mapping[block_one[i].item()]
 
         return {
             "id": index,
