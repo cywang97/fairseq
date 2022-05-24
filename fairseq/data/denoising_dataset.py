@@ -136,6 +136,12 @@ class DenoisingDataset(FairseqDataset):
         self.sizes = sizes
 
         self.vocab = vocab
+        f = open('/modelblob/users/v-chengw/data/librispeech/mbart_data/data-bin/mapping_0.3.txt')
+        self.mapping = {}
+        for line in f:
+            line = line.strip().split()
+            self.mapping[self.vocab.index(line[0])] = self.vocab.index(line[1])
+
         self.shuffle = shuffle
         self.seed = seed
         self.mask_idx = mask_idx
@@ -146,6 +152,7 @@ class DenoisingDataset(FairseqDataset):
         self.rotate_ratio = args.rotate
         self.permute_sentence_ratio = args.permute_sentences
         self.eos = eos if eos is not None else vocab.eos()
+        #self.eos = eos
         self.item_transform_func = item_transform_func
         self.segment_id = segment_id
 
@@ -192,8 +199,14 @@ class DenoisingDataset(FairseqDataset):
     def __getitem__(self, index):
         with data_utils.numpy_seed(self.seed, self.epoch, index):
             tokens = self.dataset[index]
-            #assert tokens[-1] == self.eos
             source, target = tokens, tokens.clone()
+            for i in range(len(source)-2):
+                if source[i].item() in self.mapping and np.random.random() < 0.5:
+                    source[i] = self.mapping[source[i].item()]
+
+            for i in range(len(target)-2):
+                if source[i].item() in self.mapping and np.random.random() < 0.5:
+                    target[i] = self.mapping[target[i].item()]
 
             if self.permute_sentence_ratio > 0.0:
                 source = self.permute_sentences(source, self.permute_sentence_ratio)
@@ -211,7 +224,7 @@ class DenoisingDataset(FairseqDataset):
             source, target = self.item_transform_func(source, target)
 
         assert (source >= 0).all()
-        assert (source[1:-1] >= 1).all()
+        #assert (source[1:-1] >= 1).all()
         assert (source <= len(self.vocab)).all()
         #assert source[0] == self.vocab.bos()
         #assert source[-1] == self.eos
