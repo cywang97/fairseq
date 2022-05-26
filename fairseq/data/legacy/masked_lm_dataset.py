@@ -94,11 +94,15 @@ class MaskedLMDataset(FairseqDataset):
         self.mask_multiple_length = mask_multiple_length
         self.random_token_prob = random_token_prob
 
-        f = open('/modelblob/users/v-chengw/data/librispeech/mbart_data/data-bin/mapping.txt')
+        import json
+        f = open('/modelblob/users/v-chengw/data/librispeech/mbart_data/data-bin-large/mapping_sent1.json')
+        mapping = json.load(f)
         self.mapping = {}
-        for line in f:
-            line = line.strip().split()
-            self.mapping[self.vocab.index(line[0])] = self.vocab.index(line[1])
+        for k, v in mapping.items():
+            self.mapping[vocab.index(k)] = v
+            for i in range(len(self.mapping[vocab.index(k)]['phn'])):
+                self.mapping[vocab.index(k)]['phn'][i] = vocab.index(self.mapping[vocab.index(k)]['phn'][i])
+
         # If we have only one block then sizes needs to be updated to include
         # the classification token
         if not has_pairs:
@@ -111,9 +115,9 @@ class MaskedLMDataset(FairseqDataset):
         else:
             block_one = self.dataset[index]
 
-        for i in range(len(block_one)-1):
-            if np.random.random() < 0.3:
-                block_one[i] = self.mapping[block_one[i].item()]
+        #for i in range(len(block_one)-1):
+        #    if block_one[i].item() in self.mapping and np.random.random() < 0.5:
+        #        block_one[i] = self.mapping[block_one[i].item()]
 
         return {
             "id": index,
@@ -222,10 +226,23 @@ class MaskedLMDataset(FairseqDataset):
                     self.pad_idx,
                     token_range,
                 )
-
                 tokens = np.concatenate([[self.classif_token_idx], masked_blk_one])
                 targets = np.concatenate([[self.pad_idx], masked_tgt_one])
                 segments = np.ones(len(tokens)) * self.segment_id
+
+                sent_length = len(masked_tgt_one)
+                replace = np.random.choice(sent_length, int(sent_length * 0.5), replace=False)
+                for i in replace:
+                    code = s['block_one'][i].item()
+                    if code in self.mapping:
+                        idx = np.random.choice(range(len(self.mapping[code]['phn'])), 1, replace=False,p = self.mapping[code]['prob'])[0]
+                        if targets[i+1] == 1:
+                            tokens[i+1] = self.mapping[code]['phn'][idx]
+                        else:
+                            targets[i+1] = self.mapping[code]['phn'][idx]
+                        segments[i+1] = 1 - self.segment_id
+
+
 
                 # if has_pairs is True then we need to add the SEP token to both
                 # the blocks after masking and re-compute segments based on the new
