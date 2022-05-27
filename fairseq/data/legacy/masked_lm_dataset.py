@@ -230,17 +230,15 @@ class MaskedLMDataset(FairseqDataset):
                 targets = np.concatenate([[self.pad_idx], masked_tgt_one])
                 segments = np.ones(len(tokens)) * self.segment_id
 
-                sent_length = len(masked_tgt_one)
-                replace = np.random.choice(sent_length, int(sent_length * 0.5), replace=False)
-                for i in replace:
-                    code = s['block_one'][i].item()
-                    if code in self.mapping:
+                for i in range(1, len(tokens)):
+                    code = s['block_one'][i-1].item()
+                    if code in self.mapping and np.random.random() < 0.5:
                         idx = np.random.choice(range(len(self.mapping[code]['phn'])), 1, replace=False,p = self.mapping[code]['prob'])[0]
-                        if targets[i+1] == 1:
-                            tokens[i+1] = self.mapping[code]['phn'][idx]
+                        if targets[i] == 1:
+                            tokens[i] = self.mapping[code]['phn'][idx]
                         else:
-                            targets[i+1] = self.mapping[code]['phn'][idx]
-                        segments[i+1] = 1 - self.segment_id
+                            targets[i] = self.mapping[code]['phn'][idx]
+                        segments[i] = 1 - self.segment_id
 
 
 
