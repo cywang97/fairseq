@@ -47,8 +47,10 @@ def collate(
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
 
-    segment_src = torch.LongTensor([s["segment_id"] for s in samples])
+    segment_src = torch.LongTensor([[s["segment_id"]] * src_tokens.shape[1] for s in samples])
     segment_src = segment_src.index_select(0, sort_order)
+
+
 
     prev_output_tokens = None
     target = None
@@ -78,6 +80,8 @@ def collate(
     else:
         ntokens = sum(len(s["source"]) for s in samples)
 
+    segment_trg = torch.LongTensor([[s["segment_id"]] * prev_output_tokens.shape[1] for s in samples])
+    segment_trg = segment_trg.index_select(0, sort_order)
 
     batch = {
         "id": id,
@@ -93,7 +97,12 @@ def collate(
     }
     if prev_output_tokens is not None:
         batch["net_input"]["prev_output_tokens"] = prev_output_tokens
-        batch["net_input"]["trg_segment"] = segment_src.clone()
+        for i in range(len(prev_output_tokens)):
+            if samples[i]['segment_id'] == 0:
+                for j in range(len(prev_output_tokens[i])):
+                    if prev_output_tokens[i][j].item() >= 505:
+                        segment_trg[i][j] = 1
+        batch["net_input"]["trg_segment"] = segment_trg
 
 
     return batch
@@ -136,11 +145,14 @@ class DenoisingDataset(FairseqDataset):
         self.sizes = sizes
 
         self.vocab = vocab
-        f = open('/modelblob/users/v-chengw/data/librispeech/mbart_data/data-bin/mapping_0.3.txt')
+        import json
+        f = open('/modelblob/users/v-chengw/data/librispeech/mbart_data/data-bin-large/mapping_sent1.json')
+        mapping = json.load(f)
         self.mapping = {}
-        for line in f:
-            line = line.strip().split()
-            self.mapping[self.vocab.index(line[0])] = self.vocab.index(line[1])
+        for k, v in mapping.items():
+            self.mapping[vocab.index(k)] = v
+            for i in range(len(self.mapping[vocab.index(k)]['phn'])):
+                self.mapping[vocab.index(k)]['phn'][i] = vocab.index(self.mapping[vocab.index(k)]['phn'][i])
 
         self.shuffle = shuffle
         self.seed = seed
@@ -200,13 +212,13 @@ class DenoisingDataset(FairseqDataset):
         with data_utils.numpy_seed(self.seed, self.epoch, index):
             tokens = self.dataset[index]
             source, target = tokens, tokens.clone()
-            for i in range(len(source)-2):
-                if source[i].item() in self.mapping and np.random.random() < 0.5:
-                    source[i] = self.mapping[source[i].item()]
+
 
             for i in range(len(target)-2):
-                if source[i].item() in self.mapping and np.random.random() < 0.5:
-                    target[i] = self.mapping[target[i].item()]
+                code = target[i].item()
+                if code in self.mapping and np.random.random() < 0.5:
+                    idx = np.random.choice(range(len(self.mapping[code]['phn'])), 1, replace=False, p=self.mapping[code]['prob'])[0]
+                    target[i] =  self.mapping[code]['phn'][idx]
 
             if self.permute_sentence_ratio > 0.0:
                 source = self.permute_sentences(source, self.permute_sentence_ratio)

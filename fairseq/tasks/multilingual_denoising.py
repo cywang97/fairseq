@@ -218,7 +218,7 @@ class MultilingualDenoisingTask(DenoisingTask):
                     }
                 )
             )
-            size_ratio = (sample_probs * dataset_lengths.sum()) / dataset_lengths
+            size_ratio = (sample_probs.min() / sample_probs)
             logger.info(
                 "Up/Down Sampling ratio by language: {}".format(
                     {

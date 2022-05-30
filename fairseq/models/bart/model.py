@@ -46,7 +46,7 @@ class BARTModel(TransformerModel):
         if hasattr(self.encoder, "dictionary"):
             self.eos: int = self.encoder.dictionary.eos()
 
-        state = torch.load('//modelblob/users/v-chengw/librispeech_model/fairseq/cross_lingual_lm/code_phn_4gpu_400k_lr1e-4/checkpoint_best.pt')
+        state = torch.load('//modelblob/users/v-chengw/librispeech_model/fairseq/cross_lingual_lm/bert_merge_960_replace_0.5_0.5/checkpoint_best.pt')
         model_state = state['model']
         new_state = {}
         for key, value in model_state.items():
@@ -97,7 +97,6 @@ class BARTModel(TransformerModel):
         if classification_head_name is not None:
             features_only = True
 
-        src_segment = src_segment.unsqueeze(-1).expand(-1, src_tokens.shape[1])
 
         encoder_out = self.encoder(
             src_tokens,
@@ -107,7 +106,6 @@ class BARTModel(TransformerModel):
             return_all_hiddens=return_all_hiddens,
         )
 
-        trg_segment = trg_segment.unsqueeze(-1).expand(-1, prev_output_tokens.shape[1])
         x, extra = self.decoder(
             prev_output_tokens,
             segment_labels=trg_segment,

@@ -43,8 +43,8 @@ class CrossEntropyCriterion(FairseqCriterion):
         count = {"count_0":0, "count_1": 0}
 
         for i in range(len(sample['net_input']['trg_segment'])):
-            corr_key = "corr_{}".format(sample['net_input']['trg_segment'][i].item())
-            count_key = "count_{}".format(sample['net_input']['trg_segment'][i].item())
+            corr_key = "corr_{}".format(sample['net_input']['trg_segment'][i][0].item())
+            count_key = "count_{}".format(sample['net_input']['trg_segment'][i][0].item())
             corr[corr_key] += correct[i].item()
             count[count_key] += (sample["target"][i] != self.padding_idx).sum().item()
 
